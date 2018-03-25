@@ -1,0 +1,79 @@
+#!/bin/rc
+
+echo scroll >>/dev/wctl         # Set auto-scroll for unattended compile
+echo allow >>/srv/hjfs.cmd      # allow changing ownership of files
+
+echo '#!/bin/rc' > /usr/glenda/bin/rc/install   # Work-around for weird go bootstrap bug on plan9
+chmod a+x /usr/glenda/bin/rc/install
+
+wd=`{ pwd }
+
+cd /arm/bin
+for(i in audio auth aux bitsy btc dial disk fs games ip ip/httpd ndb nusb replica upas venti){
+	mkdir $i
+	chgrp -u sys $i
+	chgrp sys $i
+}
+
+mkdir /usr/glenda/bin/arm
+
+# Copy the replacement bcm over /sys/src/bcm
+rm /sys/src/9/bcm/*
+cp $wd/bcm/* /sys/src/9/bcm
+
+# Compile system and kernel (ARMv6 and ARMv7)
+cd /sys/src
+objtype=arm mk install
+cd 9/bcm
+mk install && mk install 'CONF=pif' && mk install 'CONF=pif2'
+
+# Copy over the kernels boot files
+dossrv >/dev/null >[2]/dev/null
+mount -c /srv/dos /n/dos /dev/sdF0/dos
+rm /n/dos/*
+cp /arm/9pif /arm/9pif2 /n/dos
+cp $wd/bootfiles/* /n/dos
+
+# Clean up /sys/src
+cd /sys/src
+mk clean
+
+# Install the hack font
+hget https://github.com/sirnewton01/plan9-font-hack/releases/download/2-020/hack-font.zip > /tmp/hack-font.zip
+cd /lib/font/bit
+unzip </tmp/hack-font.zip
+rm /tmp/hack-font.zip
+
+# Install the plan9 tutorial
+git clone https://github.com/sirnewton01/p9-tutorial /usr/glenda/tutorial
+
+# Install custom rio startup, ipv4 link local and terminal startup scripts
+cp $wd/custom/riostart /usr/glenda/bin/rc
+chmod a+x /usr/glenda/bin/rc/riostart
+cp $wd/custom/tutorialstart /usr/glenda/bin/rc
+chmod a+x /usr/glenda/bin/rc/tutorialstart
+cp $wd/custom/profile /usr/glenda/lib
+cp $wd/custom/termrc /bin/termrc
+cp $wd/custom/find9p /root/arm/bin
+chmod a+rx /root/arm/bin/find9p
+cp $wd/custom/bcast9p /root/arm/bin
+chmod a+rx /root/arm/bin/bcast9p
+cp $wd/custom/linklocalipv4 /root/rc/bin
+
+# Download go bootstrap (386 for now)
+hget http://www.9legacy.org/download/go/go1.7.3-plan9-386-bootstrap.tbz > /tmp/go1.7.3-386.tbz
+cd /tmp
+tar zxf /tmp/go1.7.3-386.tbz
+rm /tmp/go1.7.3-386.tbz
+GOROOT=/tmp/go-plan9-386-bootstrap
+GOROOT_BOOTSTRAP=$GOROOT
+
+# Download and compile go
+hget https://curl.haxx.se/ca/cacert.pem >/sys/lib/tls/ca.pem # CA Certs
+git clone -b go1.7.3 https://go.googlesource.com/go /sys/src/go1.7.3
+cd /sys/src/go1.7.3/src
+GOOS=plan9 GOARCH=arm ./make.rc
+cp ../bin/plan9_arm/* /root/arm/bin
+
+# TODO cleanup
+rm -rf /tmp/go-plan9-386-bootstrap
